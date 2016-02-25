@@ -1,0 +1,40 @@
+#!/bin/bash
+set -euo pipefail
+
+if [[ -n ${TRAVIS_COMMIT:-} ]]; then
+  go_version=${TRAVIS_GO_VERSION}
+  commit_hash=${TRAVIS_COMMIT}
+  branch_name=${TRAVIS_BRANCH}
+  build_number=${TRAVIS_BUILD_NUMBER}
+  built_by="travis"
+else
+  go_version=$(go version)
+  commit_hash=$(git rev-parse HEAD)
+
+  branch_name=$(git symbolic-ref HEAD)
+  if [[ -z ${branch_name} ]]; then
+    branch_name="(unnamed branch)"
+  fi
+
+  build_number="n/a"
+
+  if [[ -n ${DOCKER_BUILD:-} ]]; then
+    built_by="Docker"
+  else
+    built_by=${USER}
+  fi
+fi
+
+echo "Generating version information"
+cat << GOLANG > generated_version.go
+  package main
+
+  func init() {
+    Version["GoVersion"]   = "${go_version}"
+    Version["CommitHash"]  = "${commit_hash}"
+    Version["BranchName"]  = "${branch_name}"
+    Version["BuildNumber"] = "${build_number}"
+    Version["BuiltBy"]     = "${built_by}"
+    Version["BuiltOn"]     = "$(date -u '+%F %T %Z')"
+  }
+GOLANG
