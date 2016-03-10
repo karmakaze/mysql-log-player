@@ -17,6 +17,7 @@ var (
 
 func parseFlags() {
 	flag.Parse()
+	logger.Init(*logLevel)
 
 	if *printVersion {
 		version()

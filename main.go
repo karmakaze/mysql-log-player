@@ -3,12 +3,13 @@ package main
 import (
 	// "database/sql"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
-	"sync"
 
 	logger "github.com/500px/go-utils/chatty_logger"
 	// _ "github.com/go-sql-driver/mysql"
+	"github.com/500px/mysql-log-player/query"
 	"github.com/500px/mysql-log-player/worker"
 )
 
@@ -24,26 +25,23 @@ func main() {
 	}
 	defer reader.Close()
 
-	queryChan := make(chan (string))
+	queryPool := worker.NewWorkerPool()
 
-	wg := startWorkers(queryChan, *workerCount)
-
-	for i := 0; i < 5; i++ {
-		query, err := reader.Read()
-		if err != nil {
-			logger.Errorf("Failed read: %s", err)
-			os.Exit(1)
-		}
-		queryChan <- query
+	var query *query.Query
+	for query, err = reader.Read(); err == nil; query, err = reader.Read() {
+		queryPool.Dispatch(query)
 	}
-	close(queryChan)
 
-	wg.Wait()
+	if err != nil && err != io.EOF {
+		logger.Errorf("Failed read: %s", err)
+	}
+
+	queryPool.Wait()
 }
 
-func getReader(path string) (*QueryReader, error) {
+func getReader(path string) (*query.Reader, error) {
 	if path == "" {
-		return NewQueryReader(os.Stdin)
+		return query.NewReader(os.Stdin)
 	}
 
 	file, err := os.Open(path)
@@ -51,17 +49,5 @@ func getReader(path string) (*QueryReader, error) {
 		return nil, fmt.Errorf("could not open file: %s", err)
 	}
 
-	return NewQueryReader(file)
-}
-
-func startWorkers(queryChan <-chan (string), workerCount int) sync.WaitGroup {
-	wg := sync.WaitGroup{}
-	workers := []*QueryWorker{}
-	for i := 0; i < workerCount; i++ {
-		worker := NewQueryWorker(queryChan, &wg)
-		workers = append(workers, worker)
-		wg.Add(1)
-		go worker.Run()
-	}
-	return wg
+	return query.NewReader(file)
 }
