@@ -9,8 +9,8 @@ import (
 
 	logger "github.com/500px/go-utils/chatty_logger"
 	// _ "github.com/go-sql-driver/mysql"
-	"github.com/500px/mysql-log-player/query"
-	"github.com/500px/mysql-log-player/worker"
+	"github.com/Melraidin/mysql-log-player/query"
+	"github.com/Melraidin/mysql-log-player/worker"
 )
 
 func main() {

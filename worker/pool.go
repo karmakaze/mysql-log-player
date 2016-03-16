@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	logger "github.com/500px/go-utils/chatty_logger"
-	"github.com/500px/mysql-log-player/query"
+	"github.com/Melraidin/mysql-log-player/query"
 )
 
 type WorkerPool struct {
