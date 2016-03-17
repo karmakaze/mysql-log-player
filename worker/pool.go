@@ -5,16 +5,19 @@ import (
 	"sync"
 
 	logger "github.com/500px/go-utils/chatty_logger"
-	"github.com/Melraidin/mysql-log-player/query"
+	"github.com/melraidin/mysql-log-player/query"
+	"database/sql"
 )
 
 type WorkerPool struct {
+	db          *sql.DB
 	wg          *sync.WaitGroup
 	connections map[string]chan<- string
 }
 
-func NewWorkerPool() *WorkerPool {
+func NewWorkerPool(db *sql.DB) *WorkerPool {
 	return &WorkerPool{
+		db:          db,
 		wg:          &sync.WaitGroup{},
 		connections: make(map[string]chan<- string),
 	}
@@ -24,7 +27,7 @@ func (p *WorkerPool) Dispatch(q *query.Query) {
 	workerChan, ok := p.connections[q.Client]
 	if !ok {
 		logger.Infof("Created new worker for client: %s", q.Client)
-		workerChan = NewWorker(q.Client, p.wg)
+		workerChan = NewWorker(q.Client, p.db, p.wg)
 		p.connections[q.Client] = workerChan
 	}
 	workerChan <- q.SQL

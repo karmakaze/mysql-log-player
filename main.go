@@ -1,16 +1,16 @@
 package main
 
 import (
-	// "database/sql"
+	"database/sql"
 	"fmt"
+	"log"
 	"io"
 	"os"
 	"runtime"
-
+	_ "github.com/ziutek/mymysql/godrv"
 	logger "github.com/500px/go-utils/chatty_logger"
-	// _ "github.com/go-sql-driver/mysql"
-	"github.com/Melraidin/mysql-log-player/query"
-	"github.com/Melraidin/mysql-log-player/worker"
+	"github.com/melraidin/mysql-log-player/query"
+	"github.com/melraidin/mysql-log-player/worker"
 )
 
 func main() {
@@ -24,8 +24,20 @@ func main() {
 		os.Exit(1)
 	}
 	defer reader.Close()
+	//
+	connectInfo := fmt.Sprintf("tcp:%s:3306*%s/%s/%s", *dbHost, *dbName, *dbUser, *dbPass)
+	fmt.Printf("connection info: %v\n", connectInfo)
+	db, err := sql.Open("mymysql", connectInfo)
+	if err != nil {
+		log.Fatalf("Error opening database: %v", err)
+	}
+	err = db.Ping()
+	if err != nil {
+		logger.Errorf("Error pinging db: %v", err)
+		os.Exit(1)
+	}
 
-	queryPool := worker.NewWorkerPool()
+	queryPool := worker.NewWorkerPool(db)
 
 	var query *query.Query
 	for query, err = reader.Read(); err == nil; query, err = reader.Read() {
