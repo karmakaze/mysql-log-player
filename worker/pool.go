@@ -20,7 +20,7 @@ type WorkerPool struct {
 func NewWorkerPool(db *sql.DB, metrics metrics.StatsdClient) *WorkerPool {
 	stats := make(chan Stat, 2000)
 	appStats := NewAppStats(stats, metrics)
-	appStats.Run()
+	go appStats.Run()
 
 	return &WorkerPool{
 		db:          db,

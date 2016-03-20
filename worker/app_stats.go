@@ -19,6 +19,8 @@ type AppStats struct {
 func NewAppStats(stats chan Stat, statsdClient metrics.StatsdClient) *AppStats {
 	return &AppStats{
 		stats:        stats,
+		userIds:      map[int32]struct{}{},
+		photoIds:     map[int32]struct{}{},
 		statsdClient: statsdClient,
 	}
 }
