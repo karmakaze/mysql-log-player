@@ -3,14 +3,16 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"io"
 	"os"
 	"runtime"
-	_ "github.com/ziutek/mymysql/godrv"
+	//_ "github.com/ziutek/mymysql/godrv"
+	_ "github.com/go-sql-driver/mysql"
 	logger "github.com/500px/go-utils/chatty_logger"
+	"github.com/500px/go-utils/metrics"
 	"github.com/melraidin/mysql-log-player/query"
 	"github.com/melraidin/mysql-log-player/worker"
+	"time"
 )
 
 func main() {
@@ -25,23 +27,42 @@ func main() {
 	}
 	defer reader.Close()
 	//
-	connectInfo := fmt.Sprintf("tcp:%s:3306*%s/%s/%s", *dbHost, *dbName, *dbUser, *dbPass)
-	fmt.Printf("connection info: %v\n", connectInfo)
-	db, err := sql.Open("mymysql", connectInfo)
-	if err != nil {
-		log.Fatalf("Error opening database: %v", err)
-	}
+	connectInfo := fmt.Sprintf("%s:%s@tcp(%s:3306)/%s?allowOldPasswords=1", *dbUser, *dbPass, *dbHost, *dbName)
+	db, err := sql.Open("mysql", connectInfo)
+	exitOnError(err)
+
+	db.SetMaxOpenConns(900)
+	db.SetMaxIdleConns(10000) // fix TIME_WAIT with Go-MySQL-Driver https://www.percona.com/blog/2014/05/14/tips-benchmarking-go-mysql/
+
 	err = db.Ping()
-	if err != nil {
-		logger.Errorf("Error pinging db: %v", err)
-		os.Exit(1)
-	}
+	exitOnError(err)
 
-	queryPool := worker.NewWorkerPool(db)
+	logger.Debugf("db.Ping OK")
 
+	statsdClient, err := metrics.NewStatsdClient("mysql_log_player", "", "127.0.0.1:8125")
+	exitOnError(err)
+	logger.Debugf("Created statsd client.")
+	statsdClient.Incr("start", 1)
+
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	exitOnError(err)
+	logger.Debugf("COUNT(*) users: %d", count)
+
+	logger.Debugf("Creating query pool:")
+	queryPool := worker.NewWorkerPool(db, statsdClient)
+	logger.Debugf("Created query pool.")
+
+	time.Sleep(5 * time.Second)
+	logger.Infof("Dispatching queries...")
+
+	i := 0
 	var query *query.Query
 	for query, err = reader.Read(); err == nil; query, err = reader.Read() {
+		i += 1
+		logger.Debugf("Dispatching query: %d", i)
 		queryPool.Dispatch(query)
+		logger.Debugf("Dispatched query: %d", i)
 	}
 
 	if err != nil && err != io.EOF {
@@ -62,4 +83,11 @@ func getReader(path string) (*query.Reader, error) {
 	}
 
 	return query.NewReader(file)
+}
+
+func exitOnError(err error) {
+	if err != nil {
+		logger.Errorf("Error pinging db: %v", err)
+		os.Exit(1)
+	}
 }
