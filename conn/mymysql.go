@@ -17,7 +17,7 @@ type MyMySQLConn struct {
 }
 
 type MyMySQLTx struct {
-	conn mysql.Transaction
+	tx mysql.Transaction
 }
 
 type MyMySQLRows struct {
@@ -44,6 +44,30 @@ func (m *MyMySQLOpener) Open() (DBConn, error) {
 	return &MyMySQLConn{conn}, err
 }
 
+func (c MyMySQLConn) Begin() (Tx, error) {
+	tx, err := c.conn.Begin()
+	if err != nil {
+		return nil, err
+	}
+	return MyMySQLTx{tx}, nil
+}
+
+func (tx MyMySQLTx) Query(query string, args ...interface{}) (Rows, error) {
+	_, result, err := tx.tx.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return &MyMySQLRows{result}, nil
+}
+
+func (tx MyMySQLTx) Commit() error {
+	return tx.tx.Commit()
+}
+
+func (tx MyMySQLTx) Rollback() error {
+	return tx.tx.Rollback()
+}
+
 func (c MyMySQLConn) Query(query string, args ...interface{}) (Rows, error) {
 	_, result, err := c.conn.Query(query, args...)
 	if err != nil {
@@ -68,11 +92,11 @@ func (rs MyMySQLRows) First() (Row, error) {
 	return &MyMySQLRow{rs.rows, row}, nil
 }
 
-func (r MyMySQLRow) Int(name string) (int32, error) {
+func (r MyMySQLRow) Int(name string) (int, error) {
 	for i, field := range r.rows.Fields() {
 		if field.Name == name {
 			intValue := r.row.Int(i)
-			return int32(intValue), nil
+			return int(intValue), nil
 		}
 	}
 	return 0, NoColumnError

@@ -17,6 +17,10 @@ type SiddontangConn struct {
 	conn *client.Conn
 }
 
+type SiddontangTx struct {
+	conn *client.Conn
+}
+
 type SiddontangRows struct {
 	result *mysql.Result
 }
@@ -43,6 +47,30 @@ func (m *SiddontangOpener) Open() (DBConn, error) {
 	return SiddontangConn{conn}, nil
 }
 
+func (c SiddontangConn) Begin() (Tx, error) {
+	err := c.conn.Begin()
+	if err != nil {
+		return SiddontangTx{}, err
+	}
+	return SiddontangTx{ c.conn }, nil
+}
+
+func (tx SiddontangTx) Query(query string, args ...interface{}) (Rows, error) {
+	result, err := tx.conn.Execute(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return &SiddontangRows{result}, nil
+}
+
+func (tx SiddontangTx) Commit() error {
+	return tx.conn.Commit()
+}
+
+func (tx SiddontangTx) Rollback() error {
+	return tx.conn.Rollback()
+}
+
 func (c SiddontangConn) Query(query string, args ...interface{}) (Rows, error) {
 	result, err := c.conn.Execute(query, args...)
 	if err != nil {
@@ -63,11 +91,11 @@ func (rs SiddontangRows) First() (Row, error) {
 	return &SiddontangRow{rs.result}, nil
 }
 
-func (r SiddontangRow) Int(name string) (int32, error) {
+func (r SiddontangRow) Int(name string) (int, error) {
 	logger.Infof("SiddontangRow.Int(%s): status = %v", name, r.result.Status)
 	valInt64, err := r.result.GetIntByName(0, name)
 	if err != nil {
 		return 0, err
 	}
-	return int32(valInt64), nil
+	return int(valInt64), nil
 }

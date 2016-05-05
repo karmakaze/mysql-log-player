@@ -14,9 +14,20 @@ type DBOpener interface {
 	Open() (DBConn, error)
 }
 
-type DBConn interface {
+type QConn interface {
 	Query(string, ...interface{}) (Rows, error)
+}
+
+type DBConn interface {
+	Begin() (Tx, error)
+	QConn
 	Close() error
+}
+
+type Tx interface {
+	QConn
+	Commit() error
+	Rollback() error
 }
 
 type Rows interface {
@@ -25,5 +36,5 @@ type Rows interface {
 }
 
 type Row interface {
-	Int(string) (int32, error)
+	Int(string) (int, error)
 }

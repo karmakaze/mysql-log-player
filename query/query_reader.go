@@ -73,6 +73,7 @@ func (r *Reader) Read() (*Query, error) {
 			if matches := clientRegex.FindStringSubmatch(line); len(matches) == 2 {
 				query.Client = matches[1]
 			}
+		} else if strings.HasPrefix(line, "# Query_time: ") {
 		} else {
 			r.buffer.WriteString(line)
 		}

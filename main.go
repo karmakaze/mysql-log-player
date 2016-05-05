@@ -1,13 +1,13 @@
 package main
 
 import (
+	"compress/gzip"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
-	"runtime"
 	"time"
 	//_ "github.com/ziutek/mymysql/godrv"
 	_ "github.com/go-sql-driver/mysql"
@@ -16,12 +16,9 @@ import (
 	"github.com/melraidin/mysql-log-player/conn"
 	"github.com/melraidin/mysql-log-player/query"
 	"github.com/melraidin/mysql-log-player/worker"
-	"compress/gzip"
 )
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU() * 20)
-
 	parseFlags()
 
 	startDebugListener()
@@ -33,27 +30,25 @@ func main() {
 
 	logger.Debugf("Creating query pool:")
 
-	//hostPort := fmt.Sprintf("%s:3306", *dbHost)
-	//dbOpener := conn.NewMyMySQLOpener(hostPort, *dbUser, *dbPass, *dbName)
+	hostPort := fmt.Sprintf("%s:3306", *dbHost)
+	dbOpener := conn.NewMyMySQLOpener(hostPort, *dbUser, *dbPass, *dbName)
 
-	connectInfo := fmt.Sprintf("%s:%s@tcp(%s:3306)/%s?allowOldPasswords=1", *dbUser, *dbPass, *dbHost, *dbName)
-	dbOpener := conn.NewGoMySQLOpener("mysql", connectInfo)
+	//connectInfo := fmt.Sprintf("%s:%s@tcp(%s:3306)/%s?allowOldPasswords=1&autocommit=true", *dbUser, *dbPass, *dbHost, *dbName)
+	//dbOpener := conn.NewGoMySQLOpener("mysql", connectInfo)
 
 	//dbOpener := conn.NewSiddontangOpener(hostPort, *dbUser, *dbPass, *dbName)
 
 	logger.Infof("Counting client queries...")
-	logtime0 := time.Now()
 	var logtime1 time.Time
 	clientQueries := map[string]int{}
 	err = foreach(func(query *query.Query) {
-		if query.Time.Before(logtime0) {
-			logtime0 = query.Time
-		}
 		if query.Time.After(logtime1) {
 			logtime1 = query.Time
 		}
 		clientQueries[query.Client]++
 	})
+	logtime0 := logtime1.Add(-1 * time.Hour)
+
 	if err != nil && err != io.EOF {
 		logger.Errorf("Failed read: %s", err)
 		os.Exit(1)
@@ -65,11 +60,11 @@ func main() {
 	queryPool := worker.NewWorkerPool(dbOpener, *dbConcurrency, statsdClient)
 	logger.Debugf("Created query pool.")
 
-	time.Sleep(5 * time.Second)
+	time.Sleep(1 * time.Second)
 	queryPool.Logtime0 = logtime0
 	queryPool.Runtime0 = time.Now()
 	queryPool.ReplaySpeed = *replaySpeed
-	logger.Infof("%v Dispatching queries at %dx speed...", queryPool.Runtime0, queryPool.ReplaySpeed)
+	logger.Infof("%v Dispatching queries at %gx speed...", queryPool.Runtime0, queryPool.ReplaySpeed)
 
 	i := 0
 	err = foreach(func(query *query.Query) {

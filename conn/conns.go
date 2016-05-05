@@ -2,6 +2,7 @@ package conn
 
 import (
 	"sync"
+	"github.com/500px/go-utils/chatty_logger"
 )
 
 type DBConns struct {
@@ -26,13 +27,19 @@ func (dbs *DBConns) AcquireDB() (DBConn, error) {
 	dbs.lock.Lock()
 	if dbs.made < dbs.maxConnections {
 		dbs.made++
+		number := dbs.made
 		dbs.lock.Unlock()
+		logger.Infof("Creating connection #%d", number)
 		return dbs.dbOpener.Open()
 	}
 	dbs.lock.Unlock()
 	return <-dbs.conns, nil
 }
 
-func (dbs *DBConns) ReleaseDB(db DBConn) {
+func (dbs *DBConns) ReleaseDB(db DBConn) DBConn {
+	if len(dbs.conns) <= dbs.maxConnections / 2 {
+		return db
+	}
 	dbs.conns<- db
+	return nil
 }

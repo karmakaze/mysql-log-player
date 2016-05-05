@@ -10,6 +10,7 @@ type GoMySQLOpener struct {
 	connectionInfo string
 }
 type GoMySQLConn struct { db *sql.DB }
+type GoMySQLTx   struct { tx *sql.Tx }
 type GoMySQLRows struct { rows *sql.Rows }
 type GoMySQLRow  struct { row *sql.Rows }
 
@@ -29,6 +30,30 @@ func (g GoMySQLOpener) Open() (DBConn, error) {
 	db.SetMaxIdleConns(1)
 
 	return GoMySQLConn{db}, nil
+}
+
+func (c GoMySQLConn) Begin() (Tx, error) {
+	tx, err := c.db.Begin()
+	if err != nil {
+		return GoMySQLTx{}, err
+	}
+	return GoMySQLTx{ tx }, nil
+}
+
+func (tx GoMySQLTx) Query(query string, params ...interface{}) (Rows, error) {
+	rows, err := tx.tx.Query(query, params...)
+	if err != nil {
+		return nil, err
+	}
+	return GoMySQLRows{rows}, nil
+}
+
+func (tx GoMySQLTx) Commit() error {
+	return tx.tx.Commit()
+}
+
+func (tx GoMySQLTx) Rollback() error {
+	return tx.tx.Rollback()
 }
 
 func (c GoMySQLConn) Query(query string, params ...interface{}) (Rows, error) {
@@ -54,7 +79,7 @@ func (rs GoMySQLRows) First() (Row, error) {
 	return GoMySQLRow{rs.rows}, nil
 }
 
-func (r GoMySQLRow) Int(name string) (int32, error) {
+func (r GoMySQLRow) Int(name string) (int, error) {
 	colNames, err := r.row.Columns()
 	if err != nil {
 		return 0, err
@@ -63,7 +88,7 @@ func (r GoMySQLRow) Int(name string) (int32, error) {
 		return 0, NoColumnError
 	}
 
-	var intValue int32
+	var intValue int
 	values := make([]interface{}, len(colNames))
 	for i, colName := range colNames {
 		if colName == name {

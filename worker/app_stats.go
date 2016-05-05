@@ -1,22 +1,21 @@
 package worker
 
 import (
-	"github.com/500px/go-utils/metrics"
 	"time"
-	"fmt"
+	"github.com/500px/go-utils/metrics"
 )
 
 type Stat struct {
-	userId  int32
-    photoId int32
+	userId  int
+    photoId int
 }
 
 type AppStats struct {
 	start        time.Time
 	first        time.Time
 	stats        chan Stat
-	userIds      map[int32]struct{}
-	photoIds     map[int32]struct{}
+	userIds      map[int]struct{}
+	photoIds     map[int]struct{}
 	statsdClient metrics.StatsdClient
 }
 
@@ -27,8 +26,8 @@ var (
 func NewAppStats(stats chan Stat, statsdClient metrics.StatsdClient) *AppStats {
 	return &AppStats{
 		stats:        stats,
-		userIds:      map[int32]struct{}{},
-		photoIds:     map[int32]struct{}{},
+		userIds:      map[int]struct{}{},
+		photoIds:     map[int]struct{}{},
 		statsdClient: statsdClient,
 	}
 }
@@ -48,7 +47,6 @@ func (a AppStats) ReportSpeed(t time.Time) {
 
 func (a AppStats) Run() {
 	for stat := range a.stats {
-		fmt.Printf("Stat: %v\n", stat)
 		if stat.userId > 0 {
 			a.userIds[stat.userId] = struct{}{}
 			a.statsdClient.Gauge("number.user_ids", float64(len(a.userIds)))
