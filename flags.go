@@ -16,6 +16,7 @@ var (
 	dbPass       = flag.String("db-pass", "", "MySQL password (env DB_PASS)")
 	logLevel     = logger.LogSeverity("log", logger.INFO, "The log level to emit.")
 	printVersion = flag.Bool("version", false, "Print version information and exit.")
+	readOnly     = flag.Bool("read-only", true, "Only execute read-only (SELECT...) statements.")
 
 	sourcePath  = flag.String("source", "", "Path of input log or empty for stdin.")
 	workerCount = flag.Int("workers", 5, "Number of query workers.")

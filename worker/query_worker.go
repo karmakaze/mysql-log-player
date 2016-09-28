@@ -20,6 +20,7 @@ var (
 
 type Worker struct {
 	client    string
+	readOnly  bool
 	queryChan <-chan string
 	db        *sql.DB
 	wg        *sync.WaitGroup
@@ -27,11 +28,12 @@ type Worker struct {
 	metrics   metrics.StatsdClient
 }
 
-func NewWorker(client string, db *sql.DB, wg *sync.WaitGroup, stats chan<- Stat, metrics metrics.StatsdClient) chan<- string {
+func NewWorker(client string, db *sql.DB, readOnly bool, wg *sync.WaitGroup, stats chan<- Stat, metrics metrics.StatsdClient) chan<- string {
 	queryChan := make(chan string, BufferSize)
 
 	worker := Worker{
 		client:    client,
+		readOnly:  readOnly,
 		queryChan: queryChan,
 		db:        db,
 		wg:        wg,
@@ -48,7 +50,7 @@ func NewWorker(client string, db *sql.DB, wg *sync.WaitGroup, stats chan<- Stat,
 func (w *Worker) Run() {
 	for query := range w.queryChan {
 		query = strings.TrimSpace(query)
-		if !strings.HasPrefix(strings.ToUpper(query), "SELECT") {
+		if w.readOnly && !strings.HasPrefix(strings.ToUpper(query), "SELECT") {
 			logger.Debugf("[%s] Skipping non-SELECT query: %v", w.client, query)
 			continue
 		}

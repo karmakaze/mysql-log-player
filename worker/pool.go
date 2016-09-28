@@ -11,19 +11,21 @@ import (
 
 type WorkerPool struct {
 	db          *sql.DB
+	readOnly    bool
 	wg          *sync.WaitGroup
 	connections map[string]chan<- string
 	appStats    *AppStats
 	metrics     metrics.StatsdClient
 }
 
-func NewWorkerPool(db *sql.DB, metrics metrics.StatsdClient) *WorkerPool {
+func NewWorkerPool(db *sql.DB, readOnly bool, metrics metrics.StatsdClient) *WorkerPool {
 	stats := make(chan Stat, 2000)
 	appStats := NewAppStats(stats, metrics)
 	go appStats.Run()
 
 	return &WorkerPool{
 		db:          db,
+		readOnly:    readOnly,
 		wg:          &sync.WaitGroup{},
 		connections: make(map[string]chan<- string),
 		appStats:    appStats,
@@ -35,7 +37,7 @@ func (p *WorkerPool) Dispatch(q *query.Query) {
 	workerChan, ok := p.connections[q.Client]
 	if !ok {
 		logger.Infof("Created new worker for client: %s", q.Client)
-		workerChan = NewWorker(q.Client, p.db, p.wg, p.appStats.stats, p.metrics)
+		workerChan = NewWorker(q.Client, p.db, p.readOnly, p.wg, p.appStats.stats, p.metrics)
 		p.connections[q.Client] = workerChan
 		p.metrics.Gauge("clients", float64(len(p.connections)))
 	}
