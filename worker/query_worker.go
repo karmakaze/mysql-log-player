@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"github.com/500px/go-utils/metrics"
 	"errors"
+	"fmt"
 )
 
 var (
@@ -20,6 +21,7 @@ var (
 
 type Worker struct {
 	client    string
+	dryRun    bool
 	readOnly  bool
 	queryChan <-chan string
 	db        *sql.DB
@@ -28,11 +30,12 @@ type Worker struct {
 	metrics   metrics.StatsdClient
 }
 
-func NewWorker(client string, db *sql.DB, readOnly bool, wg *sync.WaitGroup, stats chan<- Stat, metrics metrics.StatsdClient) chan<- string {
+func NewWorker(client string, db *sql.DB, dryRun bool, readOnly bool, wg *sync.WaitGroup, stats chan<- Stat, metrics metrics.StatsdClient) chan<- string {
 	queryChan := make(chan string, BufferSize)
 
 	worker := Worker{
 		client:    client,
+		dryRun:    dryRun,
 		readOnly:  readOnly,
 		queryChan: queryChan,
 		db:        db,
@@ -52,6 +55,11 @@ func (w *Worker) Run() {
 		query = strings.TrimSpace(query)
 		if w.readOnly && !strings.HasPrefix(strings.ToUpper(query), "SELECT") {
 			logger.Debugf("[%s] Skipping non-SELECT query: %v", w.client, query)
+			continue
+		}
+
+		if w.dryRun {
+			fmt.Println("DRYRUN:", query)
 			continue
 		}
 

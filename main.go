@@ -50,7 +50,7 @@ func main() {
 	logger.Debugf("COUNT(*) users: %d", count)
 
 	logger.Debugf("Creating query pool:")
-	queryPool := worker.NewWorkerPool(db, *readOnly, statsdClient)
+	queryPool := worker.NewWorkerPool(db, *dryRun, *readOnly, statsdClient)
 	logger.Debugf("Created query pool.")
 
 	time.Sleep(5 * time.Second)

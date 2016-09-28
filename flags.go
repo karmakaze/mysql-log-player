@@ -17,6 +17,7 @@ var (
 	logLevel     = logger.LogSeverity("log", logger.INFO, "The log level to emit.")
 	printVersion = flag.Bool("version", false, "Print version information and exit.")
 	readOnly     = flag.Bool("read-only", true, "Only execute read-only (SELECT...) statements.")
+	dryRun       = flag.Bool("dry-run", false, "Only print statements that would be executed.")
 
 	sourcePath  = flag.String("source", "", "Path of input log or empty for stdin.")
 	workerCount = flag.Int("workers", 5, "Number of query workers.")
