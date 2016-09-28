@@ -1,68 +1,63 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"io"
+	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"runtime"
+	"time"
 	//_ "github.com/ziutek/mymysql/godrv"
 	_ "github.com/go-sql-driver/mysql"
 	logger "github.com/500px/go-utils/chatty_logger"
 	"github.com/500px/go-utils/metrics"
+	"github.com/melraidin/mysql-log-player/conn"
 	"github.com/melraidin/mysql-log-player/query"
 	"github.com/melraidin/mysql-log-player/worker"
-	"time"
 )
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
+	runtime.GOMAXPROCS(runtime.NumCPU() * 20)
 
 	parseFlags()
 
-	reader, err := getReader(*sourcePath)
-	if err != nil {
-		logger.Errorf("Failed initialization: %s", err)
-		os.Exit(1)
-	}
-	defer reader.Close()
-	//
-	connectInfo := fmt.Sprintf("%s:%s@tcp(%s:3306)/%s?allowOldPasswords=1", *dbUser, *dbPass, *dbHost, *dbName)
-	db, err := sql.Open("mysql", connectInfo)
-	exitOnError(err)
-
-	db.SetMaxOpenConns(900)
-	db.SetMaxIdleConns(10000) // fix TIME_WAIT with Go-MySQL-Driver https://www.percona.com/blog/2014/05/14/tips-benchmarking-go-mysql/
-
-	err = db.Ping()
-	exitOnError(err)
-
-	logger.Debugf("db.Ping OK")
+	startDebugListener()
 
 	statsdClient, err := metrics.NewStatsdClient("mysql_log_player", "", "127.0.0.1:8125")
 	exitOnError(err)
 	logger.Debugf("Created statsd client.")
 	statsdClient.Incr("start", 1)
 
-	var count int
-	err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
-	exitOnError(err)
-	logger.Debugf("COUNT(*) users: %d", count)
-
 	logger.Debugf("Creating query pool:")
-	queryPool := worker.NewWorkerPool(db, statsdClient)
+
+	//hostPort := fmt.Sprintf("%s:3306", *dbHost)
+	//dbOpener := conn.NewMyMySQLOpener(hostPort, *dbUser, *dbPass, *dbName)
+
+	connectInfo := fmt.Sprintf("%s:%s@tcp(%s:3306)/%s?allowOldPasswords=1", *dbUser, *dbPass, *dbHost, *dbName)
+	dbOpener := conn.NewGoMySQLOpener("mysql", connectInfo)
+
+	//dbOpener := conn.NewSiddontangOpener(hostPort, *dbUser, *dbPass, *dbName)
+
+	queryPool := worker.NewWorkerPool(dbOpener, *dbConcurrency, statsdClient)
 	logger.Debugf("Created query pool.")
 
 	time.Sleep(5 * time.Second)
 	logger.Infof("Dispatching queries...")
 
 	i := 0
-	var query *query.Query
-	for query, err = reader.Read(); err == nil; query, err = reader.Read() {
+	err := foreach(func() {
 		i += 1
-		logger.Debugf("Dispatching query: %d", i)
+		//logger.Debugf("Dispatching query: %d", i)
 		queryPool.Dispatch(query)
-		logger.Debugf("Dispatched query: %d", i)
+		//logger.Debugf("Dispatched query: %d", i)
+	})
+	if err != nil {
+
+	}
+
+	for query, err = reader.Read(); err == nil; query, err = reader.Read() {
 	}
 
 	if err != nil && err != io.EOF {
@@ -70,6 +65,27 @@ func main() {
 	}
 
 	queryPool.Wait()
+}
+
+func foreach(f func(q *query.Query)) error {
+	reader, err := getReader(*sourcePath)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	var query *query.Query
+	for query, err = reader.Read(); err == nil; query, err = reader.Read() {
+		f(query)
+	}
+
+	return nil
+}
+
+func startDebugListener() {
+	go func() {
+ 		log.Println(http.ListenAndServe("localhost:6060", nil))
+ 	}()
 }
 
 func getReader(path string) (*query.Reader, error) {
