@@ -35,7 +35,7 @@ func parseFlags() {
 		os.Exit(0)
 	}
 
-	if *dbUser == "" || *dbPass == "" {
+	if !*dryRun && (*dbUser == "" || *dbPass == "") {
 		fmt.Println("Both db-user and db-pass (env DB_USER and DB_PASS) are required; for no password use \"''\"")
 		os.Exit(1)
 	}

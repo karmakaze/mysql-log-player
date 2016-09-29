@@ -12,7 +12,6 @@ import (
 	"github.com/500px/go-utils/metrics"
 	"github.com/melraidin/mysql-log-player/query"
 	"github.com/melraidin/mysql-log-player/worker"
-	"time"
 )
 
 func main() {
@@ -26,35 +25,38 @@ func main() {
 		os.Exit(1)
 	}
 	defer reader.Close()
-	//
-	connectInfo := fmt.Sprintf("%s:%s@tcp(%s:3306)/%s?allowOldPasswords=1", *dbUser, *dbPass, *dbHost, *dbName)
-	db, err := sql.Open("mysql", connectInfo)
-	exitOnError(err)
-
-	db.SetMaxOpenConns(900)
-	db.SetMaxIdleConns(10000) // fix TIME_WAIT with Go-MySQL-Driver https://www.percona.com/blog/2014/05/14/tips-benchmarking-go-mysql/
-
-	err = db.Ping()
-	exitOnError(err)
-
-	logger.Debugf("db.Ping OK")
 
 	statsdClient, err := metrics.NewStatsdClient("mysql_log_player", "", "127.0.0.1:8125")
 	exitOnError(err)
 	logger.Debugf("Created statsd client.")
 	statsdClient.Incr("start", 1)
 
-	var count int
-	err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
-	exitOnError(err)
-	logger.Debugf("COUNT(*) users: %d", count)
+	var db *sql.DB
+	if !*dryRun {
+		//
+		connectInfo := fmt.Sprintf("%s:%s@tcp(%s:3306)/%s?allowOldPasswords=1", *dbUser, *dbPass, *dbHost, *dbName)
+		db, err = sql.Open("mysql", connectInfo)
+		exitOnError(err)
+
+		db.SetMaxOpenConns(900)
+		db.SetMaxIdleConns(10000) // fix TIME_WAIT with Go-MySQL-Driver https://www.percona.com/blog/2014/05/14/tips-benchmarking-go-mysql/
+
+		err = db.Ping()
+		exitOnError(err)
+
+		logger.Debugf("db.Ping OK")
+
+		var count int
+		err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+		exitOnError(err)
+		logger.Debugf("COUNT(*) users: %d", count)
+	}
 
 	logger.Debugf("Creating query pool:")
 	queryPool := worker.NewWorkerPool(db, *dryRun, *readOnly, statsdClient)
 	logger.Debugf("Created query pool.")
 
-	time.Sleep(5 * time.Second)
-	logger.Infof("Dispatching queries...")
+	logger.Debugf("Dispatching queries...")
 
 	i := 0
 	var query *query.Query
@@ -74,6 +76,7 @@ func main() {
 
 func getReader(path string) (*query.Reader, error) {
 	if path == "" {
+		logger.Debugf("Reading from stdin")
 		return query.NewReader(os.Stdin)
 	}
 

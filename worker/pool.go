@@ -38,7 +38,7 @@ func NewWorkerPool(db *sql.DB, dryRun bool, readOnly bool, metrics metrics.Stats
 func (p *WorkerPool) Dispatch(q *query.Query) {
 	workerChan, ok := p.connections[q.Client]
 	if !ok {
-		logger.Infof("Created new worker for client: %s", q.Client)
+		logger.Debugf("Created new worker for client: %s", q.Client)
 		workerChan = NewWorker(q.Client, p.db, p.dryRun, p.readOnly, p.wg, p.appStats.stats, p.metrics)
 		p.connections[q.Client] = workerChan
 		p.metrics.Gauge("clients", float64(len(p.connections)))

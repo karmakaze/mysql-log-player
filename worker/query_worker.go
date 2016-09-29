@@ -59,7 +59,7 @@ func (w *Worker) Run() {
 		}
 
 		if w.dryRun {
-			fmt.Println("DRYRUN:", query)
+			fmt.Println(query)
 			continue
 		}
 
