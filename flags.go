@@ -16,6 +16,7 @@ var (
 	dbPass       = flag.String("db-pass", "", "MySQL password (env DB_PASS)")
 	logLevel     = logger.LogSeverity("log", logger.INFO, "The log level to emit.")
 	printVersion = flag.Bool("version", false, "Print version information and exit.")
+	format       = flag.String("format", "mysql-sniffer", "Either mysql-sniffer (ip:port:sql) or vc-mysql-sniffer (# Time:/# User@Host:/# Query_time:/sql)")
 	readOnly     = flag.Bool("read-only", true, "Only execute read-only (SELECT...) statements.")
 	dryRun       = flag.Bool("dry-run", false, "Only print statements that would be executed.")
 
@@ -33,6 +34,11 @@ func parseFlags() {
 	if *printVersion {
 		version()
 		os.Exit(0)
+	}
+
+	if *format != "mysql-sniffer" && *format != "vc-mysql-sniffer" {
+		fmt.Println("Format must be either 'mysql-sniffer' or 'vc-mysql-sniffer'")
+		os.Exit(1)
 	}
 
 	if !*dryRun && (*dbUser == "" || *dbPass == "") {

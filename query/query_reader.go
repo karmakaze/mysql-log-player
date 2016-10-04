@@ -12,15 +12,29 @@ var (
 	clientRegex = regexp.MustCompile("^# User@Host: [^ ]+ @ ([^ ]+) \\[]\n$")
 )
 
+type Format int
+
+const (
+	FORMAT_MYSQL_SNIFFER Format = iota
+	FORMAT_VC_MYSQL_SNIFFER
+)
+
+var (
+	STARTS_WITH_IPV4_COLON_PORT_COLON = regexp.MustCompile(`^([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+):`)
+)
+
 type Reader struct {
-	source io.ReadCloser
-	reader *bufio.Reader
-	eof    bool
-	buffer bytes.Buffer
+	format   Format
+	source   io.ReadCloser
+	nextLine string
+	reader   *bufio.Reader
+	eof      bool
+	buffer   bytes.Buffer
 }
 
-func NewReader(source io.ReadCloser) (*Reader, error) {
+func NewReader(format Format, source io.ReadCloser) (*Reader, error) {
 	return &Reader{
+			format: format,
 			source: source,
 			reader: bufio.NewReader(source),
 		},
@@ -35,29 +49,53 @@ func (r *Reader) Read() (*Query, error) {
 	r.buffer.Reset()
 	query := &Query{}
 
-	readPrelude := false
+	inMidQuery := false
 	for {
-		line, err := r.reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				r.eof = true
-				return query, nil
+		var line string
+		if r.nextLine != "" {
+			line = r.nextLine
+			r.nextLine = ""
+		} else {
+			var err error
+			line, err = r.reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					r.eof = true
+					return query, nil
+				}
+				return nil, err
 			}
-			return nil, err
 		}
 
-		if strings.HasPrefix(line, "#") {
-			if readPrelude {
-				query.SQL = strings.TrimRight(r.buffer.String(), "\n")
-				return query, nil
-			}
+		if r.format == FORMAT_MYSQL_SNIFFER {
+			matches := STARTS_WITH_IPV4_COLON_PORT_COLON.FindStringSubmatch(line)
+			if len(matches) > 0 {
+				if inMidQuery {
+					r.nextLine = line
+					query.SQL = strings.TrimRight(r.buffer.String(), "\n")
+					return query, nil
+				}
 
-			if matches := clientRegex.FindStringSubmatch(line); len(matches) == 2 {
 				query.Client = matches[1]
+				r.buffer.WriteString(line[len(matches[0]):])
+			} else {
+				inMidQuery = true
+				r.buffer.WriteString(line)
 			}
-		} else {
-			readPrelude = true
-			r.buffer.WriteString(line)
+		} else if r.format == FORMAT_VC_MYSQL_SNIFFER {
+			if strings.HasPrefix(line, "#") {
+				if inMidQuery {
+					query.SQL = strings.TrimRight(r.buffer.String(), "\n")
+					return query, nil
+				}
+
+				if matches := clientRegex.FindStringSubmatch(line); len(matches) == 2 {
+					query.Client = matches[1]
+				}
+			} else {
+				inMidQuery = true
+				r.buffer.WriteString(line)
+			}
 		}
 	}
 }

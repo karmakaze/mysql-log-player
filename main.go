@@ -75,9 +75,16 @@ func main() {
 }
 
 func getReader(path string) (*query.Reader, error) {
+	var qFormat query.Format
+	if *format == "mysql-sniffer" {
+		qFormat = query.FORMAT_MYSQL_SNIFFER
+	} else if *format == "vc-mysql-sniffer" {
+		qFormat = query.FORMAT_VC_MYSQL_SNIFFER
+	}
+
 	if path == "" {
 		logger.Debugf("Reading from stdin")
-		return query.NewReader(os.Stdin)
+		return query.NewReader(qFormat, os.Stdin)
 	}
 
 	file, err := os.Open(path)
@@ -85,7 +92,7 @@ func getReader(path string) (*query.Reader, error) {
 		return nil, fmt.Errorf("could not open file: %s", err)
 	}
 
-	return query.NewReader(file)
+	return query.NewReader(qFormat, file)
 }
 
 func exitOnError(err error) {
