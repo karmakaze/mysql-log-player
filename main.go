@@ -15,7 +15,9 @@ import (
 )
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
+	if runtime.GOMAXPROCS(0) == 1 {
+		runtime.GOMAXPROCS(runtime.NumCPU())
+	}
 
 	parseFlags()
 
