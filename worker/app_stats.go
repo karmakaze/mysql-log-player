@@ -26,14 +26,6 @@ func NewAppStats(stats chan Stat, statsdClient metrics.StatsdClient) *AppStats {
 }
 
 func (a AppStats) Run() {
-	for stat := range a.stats {
-		if stat.userId > 0 {
-			a.userIds[stat.userId] = struct{}{}
-			a.statsdClient.Gauge("number.user_ids", float64(len(a.userIds)))
-		}
-		if stat.photoId > 0 {
-			a.photoIds[stat.photoId] = struct{}{}
-			a.statsdClient.Gauge("number.photo_ids", float64(len(a.photoIds)))
-		}
+	for _ = range a.stats {
 	}
 }

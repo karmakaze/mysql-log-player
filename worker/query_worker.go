@@ -6,7 +6,7 @@ import (
 	logger "github.com/500px/go-utils/chatty_logger"
 	"database/sql"
 	"strings"
-	"sync/atomic"
+//	"sync/atomic"
 	"github.com/500px/go-utils/metrics"
 	"errors"
 	"fmt"
@@ -63,24 +63,11 @@ func (w *Worker) Run() {
 			continue
 		}
 
-		active := atomic.AddInt64(&concurrent, 1)
-		w.metrics.Gauge("query_worker.concurrent", float64(active))
-		logger.Debugf("[%s] Querying: %s", w.client, query)
-
-		timer := metrics.NewStopwatch()
 		rows, err := w.db.Query(query)
-		timer.Stop()
-
-		atomic.AddInt64(&concurrent, -1)
-		logger.Debugf("[%s] Queryed", w.client)
 		if err != nil {
-			w.metrics.Histogram("query.duration", float64(timer.Ms()), "status:error")
-			w.metrics.Incr("query.count", 1, "status:error")
 			logger.Debugf("error '%v' running query: %s", err, query)
 			continue
 		}
-		w.metrics.Histogram("query.duration", float64(timer.Ms()), "status:ok")
-		w.metrics.Incr("query.count", 1, "status:ok")
 
 		if rows.Next() {
 			if strings.HasPrefix(query, "SELECT  `users`.* FROM `users` WHERE `users`.`authentication_token` =") {
