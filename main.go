@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"runtime"
-	//_ "github.com/ziutek/mymysql/godrv"
 	_ "github.com/go-sql-driver/mysql"
 	logger "github.com/500px/go-utils/chatty_logger"
 	"github.com/500px/go-utils/metrics"
@@ -33,26 +32,12 @@ func main() {
 	logger.Debugf("Created statsd client.")
 	statsdClient.Incr("start", 1)
 
-	var db *sql.DB
-	if !*dryRun {
-		//
-		connectInfo := fmt.Sprintf("%s:%s@tcp(%s:3306)/%s?allowOldPasswords=1", *dbUser, *dbPass, *dbHost, *dbName)
-		db, err = sql.Open("mysql", connectInfo)
-		exitOnError(err)
+    connectInfo := fmt.Sprintf("%s:%s@tcp(%s:3306)/%s?allowOldPasswords=1", *dbUser, *dbPass, *dbHost, *dbName)
+    db, err := sql.Open("mysql", connectInfo)
+    exitOnError(err)
 
-		db.SetMaxOpenConns(900)
-		db.SetMaxIdleConns(10000) // fix TIME_WAIT with Go-MySQL-Driver https://www.percona.com/blog/2014/05/14/tips-benchmarking-go-mysql/
-
-		err = db.Ping()
-		exitOnError(err)
-
-		logger.Debugf("db.Ping OK")
-
-		var count int
-		err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
-		exitOnError(err)
-		logger.Debugf("COUNT(*) users: %d", count)
-	}
+	db.SetMaxOpenConns(900)
+	db.SetMaxIdleConns(10000) // fix TIME_WAIT with Go-MySQL-Driver https://www.percona.com/blog/2014/05/14/tips-benchmarking-go-mysql/
 
 	logger.Debugf("Creating query pool:")
 	queryPool := worker.NewWorkerPool(db, *dryRun, *readOnly, statsdClient)

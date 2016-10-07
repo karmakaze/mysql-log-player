@@ -51,6 +51,8 @@ func NewWorker(client string, db *sql.DB, dryRun bool, readOnly bool, wg *sync.W
 }
 
 func (w *Worker) Run() {
+	var tx *sql.Tx
+
 	for query := range w.queryChan {
 		query = strings.TrimSpace(query)
 		if w.readOnly && !strings.HasPrefix(strings.ToUpper(query), "SELECT") {
@@ -60,6 +62,33 @@ func (w *Worker) Run() {
 
 		if w.dryRun {
 			fmt.Println(query)
+			continue
+		}
+
+		queryPrefix := strings.TrimLeft(query, " \t\n")
+		if strings.HasPrefix(queryPrefix, "BEGIN") {
+			if tx != nil {
+				tx.Rollback()
+				tx = nil
+			}
+
+			var err error
+			tx, err = w.db.Begin()
+			if err != nil {
+				logger.Errorf("Error beginning transaction: %v", err)
+			}
+			continue
+		} else if strings.HasPrefix(queryPrefix, "COMMIT") {
+			if tx != nil {
+				tx.Commit()
+				tx = nil
+			}
+			continue
+		} else if strings.HasPrefix(queryPrefix, "ROLLBACK") {
+			if tx != nil {
+				tx.Rollback()
+				tx = nil
+			}
 			continue
 		}
 

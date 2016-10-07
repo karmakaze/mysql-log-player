@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"sync"
 
-//      logger "github.com/500px/go-utils/chatty_logger"
+	//      logger "github.com/500px/go-utils/chatty_logger"
 	"github.com/500px/go-utils/metrics"
 	"github.com/melraidin/mysql-log-player/query"
 )
