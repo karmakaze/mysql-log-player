@@ -1,15 +1,17 @@
 package worker
 
 import (
-	"sync"
-
-	logger "github.com/500px/go-utils/chatty_logger"
-	"database/sql"
-	"strings"
-//	"sync/atomic"
-	"github.com/500px/go-utils/metrics"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
+	logger "github.com/500px/go-utils/chatty_logger"
+	"github.com/500px/go-utils/metrics"
+    "github.com/ziutek/mymysql/mysql"
+    _ "github.com/ziutek/mymysql/native" // Native engine
+    // _ "github.com/ziutek/mymysql/thrsafe" // Thread safe engine
+	// 	"github.com/siddontang/go-mysql/client"
+	"github.com/melraidin/mysql-log-player/db"
 )
 
 var (
@@ -24,21 +26,28 @@ type Worker struct {
 	dryRun    bool
 	readOnly  bool
 	queryChan <-chan string
-	db        *sql.DB
+	dbConn    mysql.Conn
 	wg        *sync.WaitGroup
 	stats     chan<- Stat
 	metrics   metrics.StatsdClient
 }
 
-func NewWorker(client string, db *sql.DB, dryRun bool, readOnly bool, wg *sync.WaitGroup, stats chan<- Stat, metrics metrics.StatsdClient) chan<- string {
+func NewWorker(clientId string, connectInfo db.ConnectInfo, dryRun bool, readOnly bool, wg *sync.WaitGroup, stats chan<- Stat, metrics metrics.StatsdClient) chan<- string {
+	dbConn := mysql.New("tcp", "", connectInfo.Host, connectInfo.User, connectInfo.Password, connectInfo.Database)
+	err := dbConn.Connect()
+	if err != nil {
+		logger.Errorf("Error establishing DB connection: %v", err)
+		return nil
+	}
+
 	queryChan := make(chan string, BufferSize)
 
 	worker := Worker{
-		client:    client,
+		client:    clientId,
 		dryRun:    dryRun,
 		readOnly:  readOnly,
 		queryChan: queryChan,
-		db:        db,
+		dbConn:    dbConn,
 		wg:        wg,
 		stats:     stats,
 		metrics:   metrics,
@@ -51,6 +60,7 @@ func NewWorker(client string, db *sql.DB, dryRun bool, readOnly bool, wg *sync.W
 }
 
 func (w *Worker) Run() {
+	var tx mysql.Transaction
 	for query := range w.queryChan {
 		query = strings.TrimSpace(query)
 		if w.readOnly && !strings.HasPrefix(strings.ToUpper(query), "SELECT") {
@@ -63,64 +73,67 @@ func (w *Worker) Run() {
 			continue
 		}
 
-		rows, err := w.db.Query(query)
+		queryPrefix := strings.TrimLeft(query, " \t\n")
+		if strings.HasPrefix(queryPrefix, "BEGIN") {
+			if tx != nil {
+				tx.Rollback()
+				tx = nil
+			}
+			var err error
+			tx, err = w.dbConn.Begin()
+			if err != nil {
+				logger.Errorf("Error beginning transaction: %v", err)
+			}
+			continue
+		} else if strings.HasPrefix(queryPrefix, "COMMIT") {
+			if tx != nil {
+				tx.Commit()
+				tx = nil
+			}
+			continue
+		} else if strings.HasPrefix(queryPrefix, "ROLLBACK") {
+			if tx != nil {
+				tx.Rollback()
+				tx = nil
+			}
+			continue
+		}
+
+		rows, result, err := w.dbConn.Query(query)
 		if err != nil {
 			logger.Debugf("error '%v' running query: %s", err, query)
 			continue
 		}
 
-		if rows.Next() {
+		if len(rows) > 0 {
 			if strings.HasPrefix(query, "SELECT  `users`.* FROM `users` WHERE `users`.`authentication_token` =") {
 				stat := Stat{}
-				if err = extractIntColumn(rows, "id", &stat.userId); err != nil {
+				if err = extractIntColumn(rows[0], result, "id", &stat.userId); err != nil {
 					logger.Debugf("Error extracting user 'id': %v", err)
 				} else {
 					w.stats <- stat
 				}
 			} else if strings.HasPrefix(query, "SELECT  `oauth_tokens`.* FROM `oauth_tokens` WHERE `oauth_tokens`.`type` IN ('Oauth2Token')") {
 				stat := Stat{}
-				if err = extractIntColumn(rows, "user_id", &stat.userId); err != nil {
+				if err = extractIntColumn(rows[0], result, "user_id", &stat.userId); err != nil {
 					logger.Debugf("Error extracting 'user_id': %v", err)
 				} else {
 					w.stats <- stat
 				}
 			} else if strings.HasPrefix(query, "SELECT  `photos`.* FROM `photos` WHERE `photos`.`id` = ") {
 				stat := Stat{}
-				if err = extractIntColumn(rows, "id", &stat.photoId); err != nil {
+				if err = extractIntColumn(rows[0], result, "id", &stat.photoId); err != nil {
 					logger.Debugf("Error extracting photo 'id': %v", err)
 				} else {
 					w.stats <- stat
 				}
 			}
 		}
-		err = rows.Close()
-		if err != nil {
-			logger.Warnf("error closing rows: %v", err)
-		}
 	}
 	w.wg.Done()
 }
 
-func extractIntColumn(rows *sql.Rows, name string, val *int32) error {
-	colNames, err := rows.Columns()
-	if err != nil {
-		return err
-	}
-	if len(colNames) == 0 {
-		return NoColumnError
-	}
-
-	values := make([]interface{}, len(colNames))
-	for i, colName := range colNames {
-		if colName == name {
-			values[i] = val
-		} else {
-			var iface interface{}
-			values[i] = &iface
-		}
-	}
-	if err = rows.Scan(values...); err != nil {
-		return err
-	}
+func extractIntColumn(row mysql.Row, result mysql.Result, name string, val *int32) error {
+	*val = int32(row.Int(result.Map(name)))
 	return nil
 }
