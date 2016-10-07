@@ -1,15 +1,15 @@
 package worker
 
 import (
-	"sync"
-
-	logger "github.com/500px/go-utils/chatty_logger"
-	"database/sql"
-	"strings"
-//	"sync/atomic"
-	"github.com/500px/go-utils/metrics"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
+	logger "github.com/500px/go-utils/chatty_logger"
+	"github.com/500px/go-utils/metrics"
+	"github.com/siddontang/go-mysql/client"
+	"github.com/siddontang/go-mysql/mysql"
+	"github.com/melraidin/mysql-log-player/db"
 )
 
 var (
@@ -24,21 +24,33 @@ type Worker struct {
 	dryRun    bool
 	readOnly  bool
 	queryChan <-chan string
-	db        *sql.DB
+	dbConn    *client.Conn
 	wg        *sync.WaitGroup
 	stats     chan<- Stat
 	metrics   metrics.StatsdClient
 }
 
-func NewWorker(client string, db *sql.DB, dryRun bool, readOnly bool, wg *sync.WaitGroup, stats chan<- Stat, metrics metrics.StatsdClient) chan<- string {
+func NewWorker(clientId string, connectInfo db.ConnectInfo, dryRun bool, readOnly bool, wg *sync.WaitGroup, stats chan<- Stat, metrics metrics.StatsdClient) chan<- string {
+	dbConn, err := client.Connect(connectInfo.Host, connectInfo.User, connectInfo.Password, connectInfo.Database)
+	if err != nil {
+		logger.Errorf("Error establishing DB connection: %v", err)
+		return nil
+	}
+
+	err = dbConn.SetAutoCommit()
+	if err != nil {
+		logger.Errorf("Error setting auto-commit on DB connection: %v", err)
+		return nil
+	}
+
 	queryChan := make(chan string, BufferSize)
 
 	worker := Worker{
-		client:    client,
+		client:    clientId,
 		dryRun:    dryRun,
 		readOnly:  readOnly,
 		queryChan: queryChan,
-		db:        db,
+		dbConn:    dbConn,
 		wg:        wg,
 		stats:     stats,
 		metrics:   metrics,
@@ -63,64 +75,68 @@ func (w *Worker) Run() {
 			continue
 		}
 
-		rows, err := w.db.Query(query)
+		if strings.HasPrefix(query, "BEGIN") {
+			w.dbConn.Begin()
+			continue
+		} else if strings.HasPrefix(query, "COMMIT") {
+			w.dbConn.Commit()
+			continue
+		} else if strings.HasPrefix(query, "ROLLBACK") {
+			w.dbConn.Rollback()
+			continue
+		}
+
+		result, err := w.dbConn.Execute(query)
 		if err != nil {
 			logger.Debugf("error '%v' running query: %s", err, query)
 			continue
 		}
 
-		if rows.Next() {
+		if result != nil {
 			if strings.HasPrefix(query, "SELECT  `users`.* FROM `users` WHERE `users`.`authentication_token` =") {
 				stat := Stat{}
-				if err = extractIntColumn(rows, "id", &stat.userId); err != nil {
+				if err = extractIntColumn(result, "id", &stat.userId); err != nil {
 					logger.Debugf("Error extracting user 'id': %v", err)
 				} else {
 					w.stats <- stat
 				}
 			} else if strings.HasPrefix(query, "SELECT  `oauth_tokens`.* FROM `oauth_tokens` WHERE `oauth_tokens`.`type` IN ('Oauth2Token')") {
 				stat := Stat{}
-				if err = extractIntColumn(rows, "user_id", &stat.userId); err != nil {
+				if err = extractIntColumn(result, "user_id", &stat.userId); err != nil {
 					logger.Debugf("Error extracting 'user_id': %v", err)
 				} else {
 					w.stats <- stat
 				}
 			} else if strings.HasPrefix(query, "SELECT  `photos`.* FROM `photos` WHERE `photos`.`id` = ") {
 				stat := Stat{}
-				if err = extractIntColumn(rows, "id", &stat.photoId); err != nil {
+				if err = extractIntColumn(result, "id", &stat.photoId); err != nil {
 					logger.Debugf("Error extracting photo 'id': %v", err)
 				} else {
 					w.stats <- stat
 				}
 			}
 		}
-		err = rows.Close()
-		if err != nil {
-			logger.Warnf("error closing rows: %v", err)
-		}
 	}
 	w.wg.Done()
 }
 
-func extractIntColumn(rows *sql.Rows, name string, val *int32) error {
-	colNames, err := rows.Columns()
-	if err != nil {
-		return err
-	}
-	if len(colNames) == 0 {
+func extractIntColumn(result *mysql.Result, name string, val *int32) error {
+	if len(result.FieldNames) == 0 {
 		return NoColumnError
 	}
+	if len(result.Values) == 0 {
+		return nil
+	}
 
-	values := make([]interface{}, len(colNames))
-	for i, colName := range colNames {
+	for colName, i := range result.FieldNames {
 		if colName == name {
-			values[i] = val
-		} else {
-			var iface interface{}
-			values[i] = &iface
+			if iVal, ok := result.Values[0][i].(int32); ok {
+				*val = iVal
+				return nil
+			} else {
+				return fmt.Errorf("Column %s not convertable to int32: %v", name, result.Values[0][i])
+			}
 		}
 	}
-	if err = rows.Scan(values...); err != nil {
-		return err
-	}
-	return nil
+	return NoColumnError
 }

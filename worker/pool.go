@@ -1,16 +1,16 @@
 package worker
 
 import (
-	"database/sql"
 	"sync"
 
 //      logger "github.com/500px/go-utils/chatty_logger"
 	"github.com/500px/go-utils/metrics"
 	"github.com/melraidin/mysql-log-player/query"
+	"github.com/melraidin/mysql-log-player/db"
 )
 
 type WorkerPool struct {
-	db          *sql.DB
+	connectInfo db.ConnectInfo
 	dryRun      bool
 	readOnly    bool
 	wg          *sync.WaitGroup
@@ -19,13 +19,13 @@ type WorkerPool struct {
 	metrics     metrics.StatsdClient
 }
 
-func NewWorkerPool(db *sql.DB, dryRun bool, readOnly bool, metrics metrics.StatsdClient) *WorkerPool {
+func NewWorkerPool(connectInfo db.ConnectInfo, dryRun bool, readOnly bool, metrics metrics.StatsdClient) *WorkerPool {
 	stats := make(chan Stat, 2000)
 	appStats := NewAppStats(stats, metrics)
 	go appStats.Run()
 
 	return &WorkerPool{
-		db:          db,
+		connectInfo: connectInfo,
 		dryRun:      dryRun,
 		readOnly:    readOnly,
 		wg:          &sync.WaitGroup{},
@@ -38,7 +38,7 @@ func NewWorkerPool(db *sql.DB, dryRun bool, readOnly bool, metrics metrics.Stats
 func (p *WorkerPool) Dispatch(q *query.Query) {
 	workerChan, ok := p.connections[q.Client]
 	if !ok {
-		workerChan = NewWorker(q.Client, p.db, p.dryRun, p.readOnly, p.wg, p.appStats.stats, p.metrics)
+		workerChan = NewWorker(q.Client, p.connectInfo, p.dryRun, p.readOnly, p.wg, p.appStats.stats, p.metrics)
 		p.connections[q.Client] = workerChan
 	}
 	workerChan <- q.SQL
