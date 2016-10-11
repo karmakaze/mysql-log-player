@@ -19,6 +19,11 @@ func main() {
 
 	parseFlags()
 
+	logger.Infof("format    = %v", *format)
+	logger.Infof("read-only = %v", *readOnly)
+	logger.Infof("dry-run   = %v", *dryRun)
+	//logger.Infof("workers = ", *workerCount)
+
 	reader, err := getReader(*sourcePath)
 	if err != nil {
 		logger.Errorf("Failed initialization: %s", err)

@@ -16,7 +16,7 @@ import (
 
 var (
 	// Size of command buffer for new workers.
-	BufferSize = 20
+	BufferSize = 200
 	concurrent = int64(0)
 	NoColumnError = errors.New("no columns")
 )
@@ -28,15 +28,20 @@ type Worker struct {
 	queryChan <-chan string
 	dbConn    mysql.Conn
 	wg        *sync.WaitGroup
-	stats     chan<- Stat
 	metrics   metrics.StatsdClient
 }
 
-func NewWorker(clientId string, connectInfo db.ConnectInfo, dryRun bool, readOnly bool, wg *sync.WaitGroup, stats chan<- Stat, metrics metrics.StatsdClient) chan<- string {
+func NewWorker(clientId string, connectInfo db.ConnectInfo, dryRun bool, readOnly bool, wg *sync.WaitGroup, metrics metrics.StatsdClient) chan<- string {
 	dbConn := mysql.New("tcp", "", connectInfo.Host, connectInfo.User, connectInfo.Password, connectInfo.Database)
 	err := dbConn.Connect()
 	if err != nil {
 		logger.Errorf("Error establishing DB connection: %v", err)
+		return nil
+	}
+
+	_, _, err = dbConn.Query("SET autocommit=1;")
+	if err != nil {
+		logger.Errorf("Error setting autocommit on DB connection: %v", err)
 		return nil
 	}
 
@@ -49,7 +54,6 @@ func NewWorker(clientId string, connectInfo db.ConnectInfo, dryRun bool, readOnl
 		queryChan: queryChan,
 		dbConn:    dbConn,
 		wg:        wg,
-		stats:     stats,
 		metrics:   metrics,
 	}
 
@@ -61,10 +65,15 @@ func NewWorker(clientId string, connectInfo db.ConnectInfo, dryRun bool, readOnl
 
 func (w *Worker) Run() {
 	var tx mysql.Transaction
+
+	//fmt.Printf("[%s] read-only=%v dry-run=%v\n", w.client, w.readOnly, w.dryRun)
+
 	for query := range w.queryChan {
 		query = strings.TrimSpace(query)
-		if w.readOnly && !strings.HasPrefix(strings.ToUpper(query), "SELECT") {
-			logger.Debugf("[%s] Skipping non-SELECT query: %v", w.client, query)
+
+		if w.readOnly && !strings.HasPrefix(strings.ToUpper(query), "SELECT") &&
+		                 !strings.HasPrefix(strings.ToUpper(query), "(SELECT") {
+			logger.Debugf("[%s] Skipping non-SELECT query: %v\n", w.client, query)
 			continue
 		}
 
@@ -73,8 +82,7 @@ func (w *Worker) Run() {
 			continue
 		}
 
-		queryPrefix := strings.TrimLeft(query, " \t\n")
-		if strings.HasPrefix(queryPrefix, "BEGIN") {
+		if strings.HasPrefix(query, "BEGIN") {
 			if tx != nil {
 				tx.Rollback()
 				tx = nil
@@ -85,13 +93,13 @@ func (w *Worker) Run() {
 				logger.Errorf("Error beginning transaction: %v", err)
 			}
 			continue
-		} else if strings.HasPrefix(queryPrefix, "COMMIT") {
+		} else if strings.HasPrefix(query, "COMMIT") {
 			if tx != nil {
 				tx.Commit()
 				tx = nil
 			}
 			continue
-		} else if strings.HasPrefix(queryPrefix, "ROLLBACK") {
+		} else if strings.HasPrefix(query, "ROLLBACK") {
 			if tx != nil {
 				tx.Rollback()
 				tx = nil
@@ -110,22 +118,16 @@ func (w *Worker) Run() {
 				stat := Stat{}
 				if err = extractIntColumn(rows[0], result, "id", &stat.userId); err != nil {
 					logger.Debugf("Error extracting user 'id': %v", err)
-				} else {
-					w.stats <- stat
 				}
 			} else if strings.HasPrefix(query, "SELECT  `oauth_tokens`.* FROM `oauth_tokens` WHERE `oauth_tokens`.`type` IN ('Oauth2Token')") {
 				stat := Stat{}
 				if err = extractIntColumn(rows[0], result, "user_id", &stat.userId); err != nil {
 					logger.Debugf("Error extracting 'user_id': %v", err)
-				} else {
-					w.stats <- stat
 				}
 			} else if strings.HasPrefix(query, "SELECT  `photos`.* FROM `photos` WHERE `photos`.`id` = ") {
 				stat := Stat{}
 				if err = extractIntColumn(rows[0], result, "id", &stat.photoId); err != nil {
 					logger.Debugf("Error extracting photo 'id': %v", err)
-				} else {
-					w.stats <- stat
 				}
 			}
 		}

@@ -49,7 +49,6 @@ func (r *Reader) Read() (*Query, error) {
 	r.buffer.Reset()
 	query := &Query{}
 
-	inMidQuery := false
 	for {
 		var line string
 		if r.nextLine != "" {
@@ -70,7 +69,7 @@ func (r *Reader) Read() (*Query, error) {
 		if r.format == FORMAT_MYSQL_SNIFFER {
 			matches := STARTS_WITH_IPV4_COLON_PORT_COLON.FindStringSubmatch(line)
 			if len(matches) > 0 {
-				if inMidQuery {
+				if r.buffer.Len() > 0 {
 					r.nextLine = line
 					query.SQL = strings.TrimRight(r.buffer.String(), "\n")
 					return query, nil
@@ -79,12 +78,11 @@ func (r *Reader) Read() (*Query, error) {
 				query.Client = matches[1]
 				r.buffer.WriteString(line[len(matches[0]):])
 			} else {
-				inMidQuery = true
 				r.buffer.WriteString(line)
 			}
 		} else if r.format == FORMAT_VC_MYSQL_SNIFFER {
 			if strings.HasPrefix(line, "#") {
-				if inMidQuery {
+				if r.buffer.Len() > 0 {
 					query.SQL = strings.TrimRight(r.buffer.String(), "\n")
 					return query, nil
 				}
@@ -93,7 +91,6 @@ func (r *Reader) Read() (*Query, error) {
 					query.Client = matches[1]
 				}
 			} else {
-				inMidQuery = true
 				r.buffer.WriteString(line)
 			}
 		}
