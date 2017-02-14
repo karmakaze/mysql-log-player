@@ -44,7 +44,7 @@ func main() {
 	}
 
 	logger.Debugf("Creating query pool:")
-	queryPool := worker.NewWorkerPool(connectInfo, *dryRun, *readOnly, statsdClient)
+	queryPool := worker.NewWorkerPool(connectInfo, *dryRun, *readOnly, *updatesOnly, statsdClient)
 	logger.Debugf("Created query pool.")
 
 	logger.Debugf("Dispatching queries...")

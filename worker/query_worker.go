@@ -22,16 +22,17 @@ var (
 )
 
 type Worker struct {
-	client    string
-	dryRun    bool
-	readOnly  bool
-	queryChan <-chan string
-	dbConn    mysql.Conn
-	wg        *sync.WaitGroup
-	metrics   metrics.StatsdClient
+	client      string
+	dryRun      bool
+	readOnly    bool
+	updatesOnly bool
+	queryChan   <-chan string
+	dbConn      mysql.Conn
+	wg          *sync.WaitGroup
+	metrics     metrics.StatsdClient
 }
 
-func NewWorker(clientId string, connectInfo db.ConnectInfo, dryRun bool, readOnly bool, wg *sync.WaitGroup, metrics metrics.StatsdClient) chan<- string {
+func NewWorker(clientId string, connectInfo db.ConnectInfo, dryRun bool, readOnly bool, updatesOnly bool, wg *sync.WaitGroup, metrics metrics.StatsdClient) chan<- string {
 	dbConn := mysql.New("tcp", "", connectInfo.Host, connectInfo.User, connectInfo.Password, connectInfo.Database)
 	err := dbConn.Connect()
 	if err != nil {
@@ -48,13 +49,14 @@ func NewWorker(clientId string, connectInfo db.ConnectInfo, dryRun bool, readOnl
 	queryChan := make(chan string, BufferSize)
 
 	worker := Worker{
-		client:    clientId,
-		dryRun:    dryRun,
-		readOnly:  readOnly,
-		queryChan: queryChan,
-		dbConn:    dbConn,
-		wg:        wg,
-		metrics:   metrics,
+		client:      clientId,
+		dryRun:      dryRun,
+		readOnly:    readOnly,
+		updatesOnly: updatesOnly,
+		queryChan:   queryChan,
+		dbConn:      dbConn,
+		wg:          wg,
+		metrics:     metrics,
 	}
 
 	wg.Add(1)
@@ -66,7 +68,7 @@ func NewWorker(clientId string, connectInfo db.ConnectInfo, dryRun bool, readOnl
 func (w *Worker) Run() {
 	var tx mysql.Transaction
 
-	//fmt.Printf("[%s] read-only=%v dry-run=%v\n", w.client, w.readOnly, w.dryRun)
+	//fmt.Printf("[%s] read-only=%v updates-only=%v dry-run=%v\n", w.client, w.readOnly, w.updatesOnly, w.dryRun)
 
 	for query := range w.queryChan {
 		query = strings.TrimSpace(query)
@@ -74,6 +76,10 @@ func (w *Worker) Run() {
 		if w.readOnly && !strings.HasPrefix(strings.ToUpper(query), "SELECT") &&
 		                 !strings.HasPrefix(strings.ToUpper(query), "(SELECT") {
 			logger.Debugf("[%s] Skipping non-SELECT query: %v\n", w.client, query)
+			continue
+		}
+		if !w.readOnly && !strings.HasPrefix(strings.ToUpper(query), "UPDATE") {
+			logger.Debugf("[%s] Skipping non-UPDATE query: %v\n", w.client, query)
 			continue
 		}
 

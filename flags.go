@@ -18,6 +18,7 @@ var (
 	printVersion = flag.Bool("version", false, "Print version information and exit.")
 	format       = flag.String("format", "mysql-sniffer", "Either mysql-sniffer (ip:port:sql) or vc-mysql-sniffer (# Time:/# User@Host:/# Query_time:/sql)")
 	readOnly     = flag.Bool("read-only", true, "Only execute read-only (SELECT...) statements.")
+	updatesOnly  = flag.Bool("updates-only", true, "Only execute UPDATE statements when read-only=false.")
 	dryRun       = flag.Bool("dry-run", false, "Only print statements that would be executed.")
 
 	sourcePath  = flag.String("source", "", "Path of input log or empty for stdin.")
